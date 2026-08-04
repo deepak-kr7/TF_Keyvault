@@ -5,7 +5,7 @@ variable "location" {
 }
 
 variable "resource_group_name" {
-  default = "rg_demo"
+  default = "rg_demo_dev"
 }
 
 variable "vm_admin_username" {
