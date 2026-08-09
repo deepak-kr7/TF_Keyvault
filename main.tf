@@ -51,6 +51,7 @@ provider "azurerm" {
   features {}
   subscription_id = "cf4adfd0-252d-4813-b002-f6f2095a23a8"
   tenant_id       = "71a0a3bc-1f89-4203-88ea-1ba48c138dd4"
+  use_cli         = false
 }
 
 # Current Client Information (Automatically reads Tenant ID, Client ID, Object ID, Subscription ID)
