@@ -1,23 +1,33 @@
 # Variable declarations
 
 variable "location" {
-  default = "centralindia"
+  type        = string
+  default     = "centralindia"
+  description = "Azure region for resources"
 }
 
 variable "resource_group_name" {
-  default = "rg_demo_dev"
+  type        = string
+  default     = "rg_demo_dev"
+  description = "Resource Group Name"
 }
 
 variable "vm_admin_username" {
-  default = "azureuser"
+  type        = string
+  default     = "azureuser"
+  description = "Admin username for Linux VM"
 }
 
 variable "key_vault_name" {
-  default = "kvrgdemo"
+  type        = string
+  default     = "kvrgdemo"
+  description = "Base name for Azure Key Vault"
 }
 
 variable "admin_password_secret_name" {
-  default = "vm-admin-password"
+  type        = string
+  default     = "vm-admin-password"
+  description = "Secret name for VM password in Key Vault"
 }
 
 # Provider configuration
@@ -39,7 +49,7 @@ terraform {
 
 provider "azurerm" {
   features {}
-  subscription_id = "a2d0788b-89e9-49c6-8c6a-5f152ef8d304"
+  subscription_id = "cf4adfd0-252d-4813-b002-f6f2095a23a8"
 }
 
 # Resource Group
@@ -49,6 +59,13 @@ resource "azurerm_resource_group" "rg" {
   location = var.location
 }
 
+# Random Suffix for unique Key Vault Name
+resource "random_string" "kv_suffix" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
 # Current Client Information
 
 data "azurerm_client_config" "current" {}
@@ -56,12 +73,12 @@ data "azurerm_client_config" "current" {}
 # Key Vault
 
 resource "azurerm_key_vault" "kv" {
-  name                       = var.key_vault_name
+  name                       = "${var.key_vault_name}${random_string.kv_suffix.result}"
   location                   = azurerm_resource_group.rg.location
   resource_group_name        = azurerm_resource_group.rg.name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  purge_protection_enabled   = true
+  purge_protection_enabled   = false
   soft_delete_retention_days = 7
 
   access_policy {
