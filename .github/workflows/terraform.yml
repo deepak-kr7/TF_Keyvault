@@ -13,7 +13,7 @@ permissions:
 jobs:
   terraform:
     name: 'Terraform Plan & Apply'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE20: 'true'
@@ -30,7 +30,6 @@ jobs:
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: "1.9.0"
-        terraform_wrapper: false
 
     - name: Terraform Format Check
       run: terraform fmt -check
