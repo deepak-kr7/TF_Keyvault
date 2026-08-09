@@ -1,4 +1,4 @@
-name: 'Terraform CI/CD'
+name: 'Terraform Multi-Stage CI/CD'
 
 on:
   push:
@@ -11,15 +11,10 @@ permissions:
   contents: read
 
 jobs:
-  terraform:
-    name: 'Terraform Plan & Apply'
+  # Stage 1: Code Quality & Validation
+  validate-and-lint:
+    name: '1. Validate & Format'
     runs-on: ubuntu-latest
-
-    env:
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
     - name: Checkout Repository
@@ -40,9 +35,72 @@ jobs:
     - name: Terraform Validate
       run: terraform validate
 
+  # Stage 2: Security Scanning & Misconfiguration Detection
+  security-scan:
+    name: '2. Security Scan (Tfsec)'
+    runs-on: ubuntu-latest
+    needs: validate-and-lint
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Run Tfsec Security Scanner
+      uses: aquasecurity/tfsec-action@v1.0.3
+      with:
+        soft_fail: true
+
+  # Stage 3: Infrastructure Planning
+  terraform-plan:
+    name: '3. Terraform Plan'
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.9.0"
+
+    - name: Terraform Init
+      run: terraform init -upgrade
+
     - name: Terraform Plan
       run: terraform plan -input=false
 
+  # Stage 4: Infrastructure Provisioning & Deployment
+  terraform-apply:
+    name: '4. Terraform Apply'
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.9.0"
+
+    - name: Terraform Init
+      run: terraform init -upgrade
+
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       run: terraform apply -auto-approve -input=false
