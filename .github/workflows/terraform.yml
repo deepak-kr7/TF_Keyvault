@@ -13,7 +13,7 @@ permissions:
 jobs:
   terraform:
     name: 'Terraform Plan & Apply'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE20: 'true'
