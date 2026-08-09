@@ -52,6 +52,10 @@ provider "azurerm" {
   subscription_id = "cf4adfd0-252d-4813-b002-f6f2095a23a8"
 }
 
+# Current Client Information (Automatically reads Tenant ID, Client ID, Object ID, Subscription ID)
+
+data "azurerm_client_config" "current" {}
+
 # Resource Group
 
 resource "azurerm_resource_group" "rg" {
@@ -65,10 +69,6 @@ resource "random_string" "kv_suffix" {
   special = false
   upper   = false
 }
-
-# Current Client Information
-
-data "azurerm_client_config" "current" {}
 
 # Key Vault
 
@@ -185,4 +185,31 @@ resource "azurerm_linux_virtual_machine" "vm" {
     sku       = "22_04-lts-gen2"
     version   = "latest"
   }
+}
+
+# Outputs
+
+output "current_tenant_id" {
+  value       = data.azurerm_client_config.current.tenant_id
+  description = "Tenant ID automatically read from authenticated client"
+}
+
+output "current_client_id" {
+  value       = data.azurerm_client_config.current.client_id
+  description = "Client ID automatically read from authenticated client"
+}
+
+output "current_subscription_id" {
+  value       = data.azurerm_client_config.current.subscription_id
+  description = "Subscription ID automatically read from authenticated client"
+}
+
+output "key_vault_name" {
+  value       = azurerm_key_vault.kv.name
+  description = "Created Azure Key Vault Name"
+}
+
+output "linux_vm_name" {
+  value       = azurerm_linux_virtual_machine.vm.name
+  description = "Created Linux VM Name"
 }
