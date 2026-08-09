@@ -166,28 +166,28 @@ resource "azurerm_network_interface" "Nic" {
 
 # VM
 
-resource "azurerm_linux_virtual_machine" "vm" {
-  name                            = "linux-vm01"
-  resource_group_name             = azurerm_resource_group.rg.name
-  location                        = azurerm_resource_group.rg.location
-  size                            = "Standard_B1s"
-  admin_username                  = var.vm_admin_username
-  admin_password                  = data.azurerm_key_vault_secret.vm_password.value
-  network_interface_ids           = [azurerm_network_interface.Nic.id]
-  disable_password_authentication = false
+# resource "azurerm_linux_virtual_machine" "vm" {
+#   name                            = "linux-vm01"
+#   resource_group_name             = azurerm_resource_group.rg.name
+#   location                        = azurerm_resource_group.rg.location
+#   size                            = "Standard_B1s"
+#   admin_username                  = var.vm_admin_username
+#   admin_password                  = data.azurerm_key_vault_secret.vm_password.value
+#   network_interface_ids           = [azurerm_network_interface.Nic.id]
+#   disable_password_authentication = false
 
-  os_disk {
-    caching              = "ReadWrite"
-    storage_account_type = "Standard_LRS"
-  }
+#   os_disk {
+#     caching              = "ReadWrite"
+#     storage_account_type = "Standard_LRS"
+#   }
 
-  source_image_reference {
-    publisher = "Canonical"
-    offer     = "0001-com-ubuntu-server-jammy"
-    sku       = "22_04-lts-gen2"
-    version   = "latest"
-  }
-}
+#   source_image_reference {
+#     publisher = "Canonical"
+#     offer     = "0001-com-ubuntu-server-jammy"
+#     sku       = "22_04-lts-gen2"
+#     version   = "latest"
+#   }
+# }
 
 # Outputs
 
@@ -211,7 +211,7 @@ output "key_vault_name" {
   description = "Created Azure Key Vault Name"
 }
 
-output "linux_vm_name" {
-  value       = azurerm_linux_virtual_machine.vm.name
-  description = "Created Linux VM Name"
-}
+# output "linux_vm_name" {
+#   value       = azurerm_linux_virtual_machine.vm.name
+#   description = "Created Linux VM Name"
+# }
