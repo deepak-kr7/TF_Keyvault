@@ -1,5 +1,6 @@
 
-trigger: none
+trigger:
+  - main
 
 pool:
   name: Nayak-pool
