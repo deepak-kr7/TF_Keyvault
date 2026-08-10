@@ -4,13 +4,118 @@ trigger: none
 pool:
   name: Nayak-pool
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+stages:
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+# =========================
+# STAGE 1: TERRAFORM INIT
+# =========================
+- stage: Terraform_Init
+  displayName: 'Terraform Init'
 
-  
+  jobs:
+  - job: Init
+    displayName: 'Terraform Initialization'
+
+    steps:
+
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: 'cicd_service'
+        backendAzureRmResourceGroupName: 'cicd_test'
+        backendAzureRmStorageAccountName: 'storagecicd12'
+        backendAzureRmContainerName: 'cicdcontainer'
+        backendAzureRmKey: 'cicd.tfstate'
+
+
+# =========================
+# STAGE 2: TERRAFORM PLAN
+# =========================
+- stage: Terraform_Plan
+  displayName: 'Terraform Plan'
+
+  dependsOn: Terraform_Init
+  condition: succeeded()
+
+  jobs:
+  - job: Plan
+    displayName: 'Terraform Plan'
+
+    steps:
+
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: 'cicd_service'
+        backendAzureRmResourceGroupName: 'cicd_test'
+        backendAzureRmStorageAccountName: 'storagecicd12'
+        backendAzureRmContainerName: 'cicdcontainer'
+        backendAzureRmKey: 'cicd.tfstate'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Validate'
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        environmentServiceNameAzureRM: 'cicd_service'
+
+
+# =========================
+# STAGE 3: TERRAFORM APPLY
+# =========================
+- stage: Terraform_Apply
+  displayName: 'Terraform Apply'
+
+  dependsOn: Terraform_Plan
+  condition: succeeded()
+
+  jobs:
+  - job: Apply
+    displayName: 'Terraform Apply'
+
+    steps:
+
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: 'cicd_service'
+        backendAzureRmResourceGroupName: 'cicd_test'
+        backendAzureRmStorageAccountName: 'storagecicd12'
+        backendAzureRmContainerName: 'cicdcontainer'
+        backendAzureRmKey: 'cicd.tfstate'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Apply'
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        commandOptions: '-auto-approve'
+        environmentServiceNameAzureRM: 'cicd_service'
+
