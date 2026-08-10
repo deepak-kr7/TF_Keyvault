@@ -64,6 +64,11 @@ resource "azurerm_resource_group" "rg" {
   location = var.location
 }
 
+resource "azurerm_resource_group" "rg1" {
+  name     = "deepu"
+  location = "centralindia"
+}
+
 # Random Suffix for unique Key Vault Name
 resource "random_string" "kv_suffix" {
   length  = 6
