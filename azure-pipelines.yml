@@ -1,49 +1,32 @@
-
 trigger:
-  - main
+- main
 
 pool:
-  name: Nayak-pool
+  name: deepu
+
+variables:
+  terraformVersion: 'latest'
+  terraformWorkingDirectory: '$(Build.SourcesDirectory)/environments/dev'
+
+  azureServiceConnection: 'cicd_service'
+
+  backendResourceGroup: 'cicd_test'
+  backendStorageAccount: 'storagecicd12'
+  backendContainer: 'cicdcontainer'
+  backendKey: 'cicd.tfstate'
+
+  # Azure OpenAI deployment name
+  azureOpenAIDeployment: 'gpt-4.1'
 
 stages:
 
-# =========================
-# STAGE 1: TERRAFORM INIT
-# =========================
-- stage: Terraform_Init
-  displayName: 'Terraform Init'
+# ============================================================
+# STAGE 1
+# TERRAFORM PLAN + SECURITY
+# ============================================================
 
-  jobs:
-  - job: Init
-    displayName: 'Terraform Initialization'
-
-    steps:
-
-    - task: TerraformInstaller@1
-      displayName: 'Install Terraform'
-      inputs:
-        terraformVersion: 'latest'
-
-    - task: TerraformTask@5
-      displayName: 'Terraform Init'
-      inputs:
-        provider: 'azurerm'
-        command: 'init'
-        backendServiceArm: 'cicd_service'
-        backendAzureRmResourceGroupName: 'cicd_test'
-        backendAzureRmStorageAccountName: 'storagecicd12'
-        backendAzureRmContainerName: 'cicdcontainer'
-        backendAzureRmKey: 'cicd.tfstate'
-
-
-# =========================
-# STAGE 2: TERRAFORM PLAN
-# =========================
 - stage: Terraform_Plan
-  displayName: 'Terraform Plan'
-
-  dependsOn: Terraform_Init
-  condition: succeeded()
+  displayName: 'Terraform Plan & Security'
 
   jobs:
   - job: Plan
@@ -51,72 +34,441 @@ stages:
 
     steps:
 
+    - checkout: self
+      clean: true
+
+    # --------------------------------------------------------
+    # Terraform
+    # --------------------------------------------------------
+
     - task: TerraformInstaller@1
       displayName: 'Install Terraform'
       inputs:
-        terraformVersion: 'latest'
+        terraformVersion: '$(terraformVersion)'
+
+    - task: PowerShell@2
+      displayName: 'Verify Terraform'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $ErrorActionPreference = "Stop"
+
+          Write-Host "OS: $env:AGENT_OS"
+          Write-Host "Architecture: $env:PROCESSOR_ARCHITECTURE"
+
+          Write-Host "Terraform:"
+          terraform version
+
+          Write-Host "Terraform location:"
+          Get-Command terraform
+
+    # --------------------------------------------------------
+    # Terraform Init
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: 'Terraform Init'
       inputs:
         provider: 'azurerm'
         command: 'init'
-        backendServiceArm: 'cicd_service'
-        backendAzureRmResourceGroupName: 'cicd_test'
-        backendAzureRmStorageAccountName: 'storagecicd12'
-        backendAzureRmContainerName: 'cicdcontainer'
-        backendAzureRmKey: 'cicd.tfstate'
+        workingDirectory: '$(terraformWorkingDirectory)'
+
+        backendServiceArm: '$(azureServiceConnection)'
+        backendAzureRmResourceGroupName: '$(backendResourceGroup)'
+        backendAzureRmStorageAccountName: '$(backendStorageAccount)'
+        backendAzureRmContainerName: '$(backendContainer)'
+        backendAzureRmKey: '$(backendKey)'
+
+    # --------------------------------------------------------
+    # Format
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Terraform Format'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        script: |
+          $ErrorActionPreference = "Stop"
+          terraform fmt -check -recursive
+
+    # --------------------------------------------------------
+    # Validate
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: 'Terraform Validate'
       inputs:
         provider: 'azurerm'
         command: 'validate'
+        workingDirectory: '$(terraformWorkingDirectory)'
+
+    # --------------------------------------------------------
+    # Checkov
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Install Security Scanner'
+      inputs:
+        targetType: 'inline'
+        script: |
+          python3 -m pip install --user checkov
+
+    - task: PowerShell@2
+      displayName: 'Terraform Security Scan'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        script: |
+          $ErrorActionPreference = "Stop"
+
+          checkov `
+            -d . `
+            --framework terraform `
+            --output json `
+            --output-file-path console,checkov-report.json
+
+    # --------------------------------------------------------
+    # Terraform Plan
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: 'Terraform Plan'
       inputs:
         provider: 'azurerm'
         command: 'plan'
-        environmentServiceNameAzureRM: 'cicd_service'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        environmentServiceNameAzureRM: '$(azureServiceConnection)'
+        commandOptions: '-out=tfplan'
+
+    # --------------------------------------------------------
+    # Convert Terraform Plan to JSON
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Create Terraform Plan JSON'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        script: |
+          $ErrorActionPreference = "Stop"
+
+          terraform show -json tfplan > tfplan.json
+
+          if (!(Test-Path "tfplan.json")) {
+              throw "tfplan.json was not generated."
+          }
+
+          Write-Host "Terraform plan JSON created."
+
+    # --------------------------------------------------------
+    # Publish files for AI
+    # --------------------------------------------------------
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Terraform Plan'
+      inputs:
+        targetPath: '$(terraformWorkingDirectory)/tfplan'
+        artifact: 'terraform-plan'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Terraform Plan JSON'
+      inputs:
+        targetPath: '$(terraformWorkingDirectory)/tfplan.json'
+        artifact: 'terraform-plan-json'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Security Report'
+      inputs:
+        targetPath: '$(terraformWorkingDirectory)/checkov-report.json'
+        artifact: 'security-report'
 
 
-# =========================
-# STAGE 3: TERRAFORM APPLY
-# =========================
-- stage: Terraform_Apply
-  displayName: 'Terraform Apply'
+# ============================================================
+# STAGE 2
+# ACTUAL AGENTIC AI REVIEW
+# ============================================================
+
+- stage: Agentic_AI
+  displayName: 'Agentic AI Terraform Review'
 
   dependsOn: Terraform_Plan
   condition: succeeded()
 
   jobs:
+  - job: AIReview
+    displayName: 'AI Agent Security Analysis'
+
+    steps:
+
+    - checkout: self
+
+    - download: current
+      artifact: terraform-plan-json
+
+    - download: current
+      artifact: security-report
+
+    # --------------------------------------------------------
+    # Install Python dependencies
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Install AI Dependencies'
+      inputs:
+        targetType: 'inline'
+        script: |
+          python3 -m pip install --user openai
+
+    # --------------------------------------------------------
+    # ACTUAL AGENTIC AI
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Run Agentic AI'
+      env:
+        AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+        AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+      inputs:
+        targetType: 'inline'
+        script: |
+
+          $ErrorActionPreference = "Stop"
+
+          $planFile = "$(Pipeline.Workspace)/terraform-plan-json/tfplan.json"
+          $securityFile = "$(Pipeline.Workspace)/security-report/checkov-report.json"
+
+          if (!(Test-Path $planFile)) {
+              throw "Terraform plan JSON not found."
+          }
+
+          if (!(Test-Path $securityFile)) {
+              throw "Security report not found."
+          }
+
+          Write-Host "Starting Agentic AI..."
+
+          $env:PLAN_FILE = $planFile
+          $env:SECURITY_FILE = $securityFile
+          $env:OPENAI_DEPLOYMENT = "$(azureOpenAIDeployment)"
+
+          @'
+          import os
+          import json
+          from openai import AzureOpenAI
+
+          plan_file = os.environ["PLAN_FILE"]
+          security_file = os.environ["SECURITY_FILE"]
+
+          with open(plan_file, "r") as f:
+              plan = json.load(f)
+
+          with open(security_file, "r") as f:
+              security = json.load(f)
+
+          # Limit context size
+          plan_text = json.dumps(plan)[:120000]
+          security_text = json.dumps(security)[:60000]
+
+          client = AzureOpenAI(
+              api_key=os.environ["AZURE_OPENAI_API_KEY"],
+              azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+              api_version="2024-10-21"
+          )
+
+          system_prompt = """
+          You are an Agentic Terraform Security Engineer.
+
+          Analyze Terraform infrastructure changes and security findings.
+
+          Your job is to:
+
+          1. Understand the Terraform plan.
+          2. Identify CREATE, UPDATE, DELETE and REPLACE operations.
+          3. Analyze security findings.
+          4. Identify destructive operations.
+          5. Identify dangerous IAM/RBAC changes.
+          6. Identify public network exposure.
+          7. Identify secrets or credentials risks.
+          8. Determine overall risk.
+
+          IMPORTANT SECURITY RULES:
+
+          - Never approve destructive infrastructure automatically.
+          - Never expose secrets.
+          - Never request credentials.
+          - Never execute Terraform commands.
+          - Never execute Azure CLI commands.
+          - You are READ-ONLY.
+          - The final Apply decision requires human approval.
+
+          Return ONLY valid JSON:
+
+          {
+            "risk": "LOW|MEDIUM|HIGH|CRITICAL",
+            "recommendation": "APPROVE|REVIEW|BLOCK",
+            "creates": 0,
+            "updates": 0,
+            "deletes": 0,
+            "replacements": 0,
+            "security_findings": [],
+            "reason": ""
+          }
+          """
+
+          user_prompt = f"""
+          Terraform Plan:
+
+          {plan_text}
+
+          Security Scan:
+
+          {security_text}
+          """
+
+          response = client.chat.completions.create(
+              model=os.environ["OPENAI_DEPLOYMENT"],
+              temperature=0,
+              response_format={"type": "json_object"},
+              messages=[
+                  {
+                      "role": "system",
+                      "content": system_prompt
+                  },
+                  {
+                      "role": "user",
+                      "content": user_prompt
+                  }
+              ]
+          )
+
+          result = response.choices[0].message.content
+
+          parsed = json.loads(result)
+
+          with open("ai-review.json", "w") as f:
+              json.dump(parsed, f, indent=2)
+
+          print(json.dumps(parsed, indent=2))
+
+          risk = parsed.get("risk", "CRITICAL")
+          recommendation = parsed.get("recommendation", "BLOCK")
+
+          print(f"AI Risk: {risk}")
+          print(f"AI Recommendation: {recommendation}")
+
+          # AI cannot authorize Apply.
+          # It can only block unsafe changes.
+
+          if risk == "CRITICAL":
+              print("##vso[task.logissue type=error]AI identified CRITICAL Terraform risk.")
+              exit(1)
+
+          if recommendation == "BLOCK":
+              print("##vso[task.logissue type=error]AI recommends blocking deployment.")
+              exit(1)
+
+          print("AI security review passed.")
+          '@ | Out-File agent.py -Encoding utf8
+
+          python3 agent.py
+
+    # --------------------------------------------------------
+    # Publish AI report
+    # --------------------------------------------------------
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish AI Security Report'
+      inputs:
+        targetPath: 'ai-review.json'
+        artifact: 'ai-review'
+
+
+# ============================================================
+# STAGE 3
+# HUMAN APPROVAL
+# ============================================================
+
+- stage: Terraform_Approval
+  displayName: 'Human Approval'
+
+  dependsOn:
+  - Terraform_Plan
+  - Agentic_AI
+
+  condition: |
+    and(
+      succeeded('Terraform_Plan'),
+      succeeded('Agentic_AI')
+    )
+
+  jobs:
+
+  - deployment: Approval
+    displayName: 'Approve Terraform Apply'
+
+    environment: 'terraform-approval'
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+
+          - script: |
+              echo "======================================"
+              echo " Terraform Apply Approval"
+              echo "======================================"
+              echo ""
+              echo "AI security review passed."
+              echo "Human approval is required."
+              echo ""
+              echo "After approval Terraform Apply will run."
+            displayName: 'Approval Gate'
+
+
+# ============================================================
+# STAGE 4
+# TERRAFORM APPLY
+# ============================================================
+
+- stage: Terraform_Apply
+  displayName: 'Terraform Apply'
+
+  dependsOn: Terraform_Approval
+  condition: succeeded()
+
+  jobs:
+
   - job: Apply
     displayName: 'Terraform Apply'
 
     steps:
 
+    - checkout: self
+
     - task: TerraformInstaller@1
       displayName: 'Install Terraform'
       inputs:
-        terraformVersion: 'latest'
+        terraformVersion: '$(terraformVersion)'
 
     - task: TerraformTask@5
       displayName: 'Terraform Init'
       inputs:
         provider: 'azurerm'
         command: 'init'
-        backendServiceArm: 'cicd_service'
-        backendAzureRmResourceGroupName: 'cicd_test'
-        backendAzureRmStorageAccountName: 'storagecicd12'
-        backendAzureRmContainerName: 'cicdcontainer'
-        backendAzureRmKey: 'cicd.tfstate'
+        workingDirectory: '$(terraformWorkingDirectory)'
+
+        backendServiceArm: '$(azureServiceConnection)'
+        backendAzureRmResourceGroupName: '$(backendResourceGroup)'
+        backendAzureRmStorageAccountName: '$(backendStorageAccount)'
+        backendAzureRmContainerName: '$(backendContainer)'
+        backendAzureRmKey: '$(backendKey)'
 
     - task: TerraformTask@5
       displayName: 'Terraform Apply'
       inputs:
         provider: 'azurerm'
         command: 'apply'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        environmentServiceNameAzureRM: '$(azureServiceConnection)'
         commandOptions: '-auto-approve'
-        environmentServiceNameAzureRM: 'cicd_service'
-
